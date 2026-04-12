@@ -81,7 +81,12 @@ export interface PointData {
   extra?: Record<string, unknown>;
 }
 
-// --- Fetchers ---
+// --- Helpers ---
+
+/** Proxy fetch for CORS-blocked APIs */
+async function proxyFetch(url: string): Promise<Response> {
+  return fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+}
 
 function parseGeometry(g: string | object): [number, number] | null {
   try {
@@ -94,7 +99,7 @@ function parseGeometry(g: string | object): [number, number] | null {
 }
 
 export async function fetchTTCVehicles(): Promise<PointData[]> {
-  const res = await fetch(
+  const res = await proxyFetch(
     "https://retro.umoiq.com/service/publicXMLFeed?command=vehicleLocations&a=ttc&t=0"
   );
   const text = await res.text();
@@ -153,7 +158,7 @@ export async function fetchBikeShare(): Promise<PointData[]> {
 export async function fetchRoadClosures(): Promise<PointData[]> {
   // This API has invalid JSON escapes sometimes, so we handle errors
   try {
-    const res = await fetch(
+    const res = await proxyFetch(
       "https://secure.toronto.ca/opendata/cart/road_restrictions/v3?format=json"
     );
     const text = await res.text();
@@ -176,7 +181,7 @@ export async function fetchRoadClosures(): Promise<PointData[]> {
 }
 
 async function fetchCKANGeoJSON(resourceId: string, limit = 500): Promise<PointData[]> {
-  const res = await fetch(
+  const res = await proxyFetch(
     `https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/datastore_search?id=${resourceId}&limit=${limit}`
   );
   const data = await res.json();
@@ -242,8 +247,7 @@ export async function fetchTrafficCameras(): Promise<PointData[]> {
 }
 
 export async function fetchCollisions(): Promise<PointData[]> {
-  // Fetch recent years only (2020+) to keep it manageable
-  const res = await fetch(
+  const res = await proxyFetch(
     `https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/datastore_search?id=9c9a9b60-95c1-4541-ad44-15c4a643aff9&limit=5000&filters={"YEAR":"2024"}`
   );
   const data = await res.json();

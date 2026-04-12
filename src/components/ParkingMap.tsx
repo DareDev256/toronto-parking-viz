@@ -341,8 +341,11 @@ export default function ParkingMap() {
           setLoadingLayers((p) => new Set(p).add(layerId));
           fetcher().then((pts) => {
             setLayerData((m) => new globalThis.Map(m).set(layerId, pts));
+          }).catch((err) => {
+            console.warn(`Layer ${layerId} fetch failed:`, err);
+          }).finally(() => {
             setLoadingLayers((p) => { const n = new Set(p); n.delete(layerId); return n; });
-          }).catch(console.error);
+          });
 
           // Set up refresh for real-time layers
           const def = CITY_LAYERS.find((l) => l.id === layerId);
@@ -350,7 +353,7 @@ export default function ParkingMap() {
             const timer = setInterval(() => {
               fetcher().then((pts) => {
                 setLayerData((m) => new globalThis.Map(m).set(layerId, pts));
-              }).catch(console.error);
+              }).catch(() => {}); // Silent fail on refresh
             }, def.refreshInterval);
             refreshTimers.current.set(layerId, timer);
           }
