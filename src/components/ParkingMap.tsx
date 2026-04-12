@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Map, useControl } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ColumnLayer, ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
+import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import type { PickingInfo } from "@deck.gl/core";
 import type { MapboxOverlayProps } from "@deck.gl/mapbox";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { CITY_LAYERS, FETCHERS, type PointData } from "@/lib/city-layers";
 import LayerPanel from "./LayerPanel";
+import CelestialClock from "./CelestialClock";
 
 function DeckGLOverlay(
   props: MapboxOverlayProps & { onClick?: (info: PickingInfo) => void }
@@ -474,28 +476,190 @@ export default function ParkingMap() {
       );
     }
 
-    // City data layers
-    for (const layerDef of CITY_LAYERS) {
-      if (!activeLayers.has(layerDef.id)) continue;
-      const points = layerData.get(layerDef.id);
-      if (!points || points.length === 0) continue;
+    // --- City data layers with unique visual treatments ---
 
+    // TTC Vehicles — red pulsing dots with white stroke
+    if (activeLayers.has("ttc") && layerData.get("ttc")?.length) {
       result.push(
         new ScatterplotLayer({
-          id: `city-${layerDef.id}`,
-          data: points,
+          id: "city-ttc",
+          data: layerData.get("ttc")!,
           getPosition: (d: PointData) => [d.lng, d.lat],
-          getFillColor: [...layerDef.color, 200] as [number, number, number, number],
-          getRadius: layerDef.id === "ttc" ? 60 : layerDef.id === "collisions" ? 40 : 50,
+          getFillColor: [220, 38, 38, 220],
+          getRadius: 70,
           pickable: true,
-          radiusMinPixels: layerDef.id === "ttc" ? 4 : 3,
-          radiusMaxPixels: 15,
-          ...(layerDef.id === "ttc" ? {
-            // TTC vehicles get line border for visibility
-            stroked: true,
-            getLineColor: [255, 255, 255, 100] as [number, number, number, number],
-            lineWidthMinPixels: 1,
-          } : {}),
+          radiusMinPixels: 4,
+          radiusMaxPixels: 12,
+          stroked: true,
+          getLineColor: [255, 255, 255, 120],
+          lineWidthMinPixels: 1,
+        })
+      );
+    }
+
+    // Bike Share — sized by availability, colored by fill ratio
+    if (activeLayers.has("bikeshare") && layerData.get("bikeshare")?.length) {
+      result.push(
+        new ScatterplotLayer({
+          id: "city-bikeshare",
+          data: layerData.get("bikeshare")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: (d: PointData) => {
+            const bikes = (d.extra?.bikes as number) || 0;
+            const capacity = (d.extra?.capacity as number) || 1;
+            const ratio = bikes / capacity;
+            if (ratio > 0.5) return [34, 197, 94, 200]; // green — plenty
+            if (ratio > 0.2) return [250, 180, 0, 200]; // yellow — getting low
+            return [239, 68, 68, 200]; // red — almost empty
+          },
+          getRadius: (d: PointData) => {
+            const capacity = (d.extra?.capacity as number) || 10;
+            return Math.max(30, capacity * 2);
+          },
+          pickable: true,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 14,
+          stroked: true,
+          getLineColor: [255, 255, 255, 60],
+          lineWidthMinPixels: 1,
+        })
+      );
+    }
+
+    // Collisions — HEATMAP, not dots
+    if (activeLayers.has("collisions") && layerData.get("collisions")?.length) {
+      result.push(
+        new HeatmapLayer({
+          id: "city-collisions",
+          data: layerData.get("collisions")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getWeight: 1,
+          radiusPixels: 30,
+          intensity: 1.5,
+          threshold: 0.1,
+          colorRange: [
+            [255, 255, 178, 25],
+            [254, 204, 92, 85],
+            [253, 141, 60, 150],
+            [240, 59, 32, 200],
+            [189, 0, 38, 230],
+          ],
+        })
+      );
+    }
+
+    // Fire Stations — large orange beacons with outer ring
+    if (activeLayers.has("fire_stations") && layerData.get("fire_stations")?.length) {
+      // Outer pulse ring
+      result.push(
+        new ScatterplotLayer({
+          id: "city-fire_stations-ring",
+          data: layerData.get("fire_stations")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [234, 88, 12, 0],
+          getRadius: 200,
+          stroked: true,
+          getLineColor: [234, 88, 12, 80],
+          lineWidthMinPixels: 2,
+          radiusMinPixels: 10,
+          radiusMaxPixels: 30,
+        })
+      );
+      // Core dot
+      result.push(
+        new ScatterplotLayer({
+          id: "city-fire_stations",
+          data: layerData.get("fire_stations")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [234, 88, 12, 240],
+          getRadius: 80,
+          pickable: true,
+          radiusMinPixels: 5,
+          radiusMaxPixels: 12,
+        })
+      );
+    }
+
+    // Red Light Cameras — red diamonds (small, sharp)
+    if (activeLayers.has("red_light_cameras") && layerData.get("red_light_cameras")?.length) {
+      result.push(
+        new ScatterplotLayer({
+          id: "city-red_light_cameras",
+          data: layerData.get("red_light_cameras")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [239, 68, 68, 200],
+          getRadius: 50,
+          pickable: true,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 8,
+          stroked: true,
+          getLineColor: [255, 100, 100, 150],
+          lineWidthMinPixels: 1,
+        })
+      );
+    }
+
+    // Speed Cameras — purple with glow ring
+    if (activeLayers.has("speed_cameras") && layerData.get("speed_cameras")?.length) {
+      result.push(
+        new ScatterplotLayer({
+          id: "city-speed_cameras-glow",
+          data: layerData.get("speed_cameras")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [168, 85, 247, 40],
+          getRadius: 150,
+          radiusMinPixels: 6,
+          radiusMaxPixels: 18,
+        })
+      );
+      result.push(
+        new ScatterplotLayer({
+          id: "city-speed_cameras",
+          data: layerData.get("speed_cameras")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [168, 85, 247, 220],
+          getRadius: 50,
+          pickable: true,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 8,
+        })
+      );
+    }
+
+    // Road Closures — large orange warning markers
+    if (activeLayers.has("road_closures") && layerData.get("road_closures")?.length) {
+      result.push(
+        new ScatterplotLayer({
+          id: "city-road_closures",
+          data: layerData.get("road_closures")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [249, 115, 22, 200],
+          getRadius: 100,
+          pickable: true,
+          radiusMinPixels: 5,
+          radiusMaxPixels: 14,
+          stroked: true,
+          getLineColor: [255, 200, 50, 150],
+          lineWidthMinPixels: 2,
+        })
+      );
+    }
+
+    // Traffic Cameras — cyan dots
+    if (activeLayers.has("traffic_cameras") && layerData.get("traffic_cameras")?.length) {
+      result.push(
+        new ScatterplotLayer({
+          id: "city-traffic_cameras",
+          data: layerData.get("traffic_cameras")!,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [59, 130, 246, 180],
+          getRadius: 50,
+          pickable: true,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 8,
+          stroked: true,
+          getLineColor: [100, 180, 255, 100],
+          lineWidthMinPixels: 1,
         })
       );
     }
@@ -539,6 +703,9 @@ export default function ParkingMap() {
 
   return (
     <div className="relative h-screen w-screen">
+      {/* Celestial sun/moon orbit */}
+      <CelestialClock hour={currentHour} isAnimating={isPlaying} />
+
       <Map
         initialViewState={TORONTO_CENTER}
         mapStyle={MAP_STYLE}
