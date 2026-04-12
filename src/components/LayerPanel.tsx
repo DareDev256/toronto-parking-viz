@@ -18,6 +18,8 @@ interface LayerPanelProps {
   onToggleBuildings: (v: boolean) => void;
   showOccupancy: boolean;
   onToggleOccupancy: (v: boolean) => void;
+  showNeighbourhoods: boolean;
+  onToggleNeighbourhoods: (v: boolean) => void;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -76,6 +78,8 @@ export default function LayerPanel({
   onToggleBuildings,
   showOccupancy,
   onToggleOccupancy,
+  showNeighbourhoods,
+  onToggleNeighbourhoods,
   isOpen,
   onClose,
 }: LayerPanelProps) {
@@ -119,6 +123,14 @@ export default function LayerPanel({
           >
             <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: "rgb(100,100,110)", opacity: showBuildings ? 1 : 0.3 }} />
             <div className={`text-xs font-medium ${showBuildings ? "text-white" : "text-zinc-500"}`}>3D Buildings</div>
+          </button>
+
+          <button
+            onClick={() => onToggleNeighbourhoods(!showNeighbourhoods)}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-left ${showNeighbourhoods ? "bg-white/10" : "hover:bg-white/5"}`}
+          >
+            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: "rgb(255,255,255)", opacity: showNeighbourhoods ? 0.5 : 0.15 }} />
+            <div className={`text-xs font-medium ${showNeighbourhoods ? "text-white" : "text-zinc-500"}`}>Neighbourhoods</div>
           </button>
         </div>
 

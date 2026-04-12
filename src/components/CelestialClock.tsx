@@ -66,12 +66,50 @@ function getCelestialPosition(hour: number): {
   }
 }
 
+// Pre-generate star positions (deterministic)
+const STARS = Array.from({ length: 80 }, (_, i) => ({
+  x: ((i * 17 + 31) % 100),
+  y: ((i * 13 + 7) % 35),
+  size: 1 + ((i * 7) % 3),
+  opacity: 0.3 + ((i * 11) % 7) / 10,
+  twinkleDelay: (i * 0.3) % 4,
+}));
+
 export default function CelestialClock({ hour, isAnimating }: CelestialClockProps) {
   const sky = getSkyColors(hour);
   const body = getCelestialPosition(hour);
+  const isNight = hour < 6 || hour >= 20;
+  const isDusk = hour >= 17 && hour < 20;
+  const isDawn = hour >= 5 && hour < 7;
+  const starsOpacity = isNight ? 0.8 : isDusk || isDawn ? 0.2 : 0;
 
   return (
     <>
+      {/* Stars — visible at night, fade at dawn/dusk */}
+      <div
+        className="absolute inset-0 z-[1] pointer-events-none"
+        style={{
+          opacity: starsOpacity,
+          transition: isAnimating ? "opacity 600ms" : "opacity 1200ms",
+        }}
+      >
+        {STARS.map((star, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full bg-white"
+            style={{
+              left: `${star.x}%`,
+              top: `${star.y}%`,
+              width: star.size,
+              height: star.size,
+              opacity: star.opacity,
+              animation: `twinkle ${2 + star.twinkleDelay}s ease-in-out infinite`,
+              animationDelay: `${star.twinkleDelay}s`,
+            }}
+          />
+        ))}
+      </div>
+
       {/* Ambient sky gradient */}
       <div
         className="absolute inset-0 z-[1] pointer-events-none transition-all"

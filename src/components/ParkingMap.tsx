@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Map, useControl, type MapRef } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { ColumnLayer, ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
+import { ColumnLayer, ScatterplotLayer, PolygonLayer, GeoJsonLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import type { PickingInfo } from "@deck.gl/core";
 import type { MapboxOverlayProps } from "@deck.gl/mapbox";
@@ -12,6 +12,7 @@ import { CITY_LAYERS, FETCHERS, type PointData } from "@/lib/city-layers";
 import LayerPanel from "./LayerPanel";
 import CelestialClock from "./CelestialClock";
 import SearchBar from "./SearchBar";
+import AboutModal from "./AboutModal";
 
 function DeckGLOverlay(
   props: MapboxOverlayProps & { onClick?: (info: PickingInfo) => void }
@@ -313,8 +314,17 @@ export default function ParkingMap() {
   const [layerData, setLayerData] = useState<globalThis.Map<string, PointData[]>>(() => new globalThis.Map());
   const [loadingLayers, setLoadingLayers] = useState<Set<string>>(new Set());
   const [hoveredCityPoint, setHoveredCityPoint] = useState<PointData | null>(null);
-  const [currentZoom, setCurrentZoom] = useState(11.5);
-  const [viewState, setViewState] = useState(TORONTO_CENTER);
+  const [currentZoom, setCurrentZoom] = useState(8);
+  const [viewState, setViewState] = useState({
+    ...TORONTO_CENTER,
+    zoom: 8,
+    pitch: 0,
+    bearing: 0,
+  });
+  const [introComplete, setIntroComplete] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [neighbourhoods, setNeighbourhoods] = useState<GeoJSON.FeatureCollection | null>(null);
+  const [showNeighbourhoods, setShowNeighbourhoods] = useState(false);
   const mapRef = useRef<MapRef>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshTimers = useRef<globalThis.Map<string, ReturnType<typeof setInterval>>>(new globalThis.Map());
@@ -328,7 +338,64 @@ export default function ParkingMap() {
       .then((r) => r.json())
       .then(setBuildings)
       .catch(console.error);
+    fetch("/data/neighbourhoods.geojson")
+      .then((r) => r.json())
+      .then(setNeighbourhoods)
+      .catch(console.error);
+
+    // Intro fly-in: start zoomed out, swoop into Toronto after 500ms
+    const timer = setTimeout(() => {
+      mapRef.current?.flyTo({
+        center: [TORONTO_CENTER.longitude, TORONTO_CENTER.latitude],
+        zoom: TORONTO_CENTER.zoom,
+        pitch: TORONTO_CENTER.pitch,
+        bearing: TORONTO_CENTER.bearing,
+        duration: 3000,
+        essential: true,
+      });
+      setTimeout(() => setIntroComplete(true), 3200);
+    }, 800);
+    return () => clearTimeout(timer);
   }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      switch (e.key) {
+        case " ":
+          e.preventDefault();
+          setIsPlaying((p) => !p);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (viewMode === "hourly") setCurrentHour((h) => (h + 1) % 24);
+          else if (viewMode === "daily") setCurrentDay((d) => (d + 1) % 7);
+          else setCurrentMonth((m) => (m % 12) + 1);
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (viewMode === "hourly") setCurrentHour((h) => (h - 1 + 24) % 24);
+          else if (viewMode === "daily") setCurrentDay((d) => (d - 1 + 7) % 7);
+          else setCurrentMonth((m) => ((m - 2 + 12) % 12) + 1);
+          break;
+        case "l":
+        case "L":
+          setLayerPanelOpen((p) => !p);
+          break;
+        case "?":
+          setShowAbout((p) => !p);
+          break;
+        case "Escape":
+          setSelectedLocation(null);
+          setShowAbout(false);
+          setLayerPanelOpen(false);
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [viewMode]);
 
   // City layer data fetching
   const toggleLayer = useCallback((layerId: string) => {
@@ -437,6 +504,22 @@ export default function ParkingMap() {
       );
     }
 
+    // Neighbourhood boundaries
+    if (showNeighbourhoods && neighbourhoods) {
+      result.push(
+        new GeoJsonLayer({
+          id: "neighbourhoods",
+          data: neighbourhoods,
+          stroked: true,
+          filled: false,
+          getLineColor: [255, 255, 255, 40],
+          getLineWidth: 1,
+          lineWidthMinPixels: 1,
+          pickable: true,
+        })
+      );
+    }
+
     // Zoom-adaptive: heatmap at city zoom, columns when close
     const useHeatmap = currentZoom < 12;
 
@@ -509,21 +592,50 @@ export default function ParkingMap() {
 
     // --- City data layers with unique visual treatments ---
 
-    // TTC Vehicles — red pulsing dots with white stroke
+    // TTC Vehicles — directional arrows showing heading
     if (activeLayers.has("ttc") && layerData.get("ttc")?.length) {
+      const ttcData = layerData.get("ttc")!;
+      // Glow trail behind each vehicle
       result.push(
         new ScatterplotLayer({
-          id: "city-ttc",
-          data: layerData.get("ttc")!,
+          id: "city-ttc-glow",
+          data: ttcData,
           getPosition: (d: PointData) => [d.lng, d.lat],
-          getFillColor: [220, 38, 38, 220],
-          getRadius: 70,
-          pickable: true,
-          radiusMinPixels: 4,
-          radiusMaxPixels: 12,
-          stroked: true,
-          getLineColor: [255, 255, 255, 120],
+          getFillColor: [220, 38, 38, 50],
+          getRadius: 150,
+          radiusMinPixels: 6,
+          radiusMaxPixels: 20,
+        })
+      );
+      // Arrow body — small triangles computed from heading
+      result.push(
+        new PolygonLayer({
+          id: "city-ttc",
+          data: ttcData,
+          getPolygon: (d: PointData) => {
+            const heading = ((d.extra?.heading as number) || 0) * (Math.PI / 180);
+            const lat = d.lat;
+            const lng = d.lng;
+            const size = 0.0008; // arrow size in degrees
+            const tipX = lng + Math.sin(heading) * size;
+            const tipY = lat + Math.cos(heading) * size;
+            const leftX = lng + Math.sin(heading - 2.5) * size * 0.5;
+            const leftY = lat + Math.cos(heading - 2.5) * size * 0.5;
+            const rightX = lng + Math.sin(heading + 2.5) * size * 0.5;
+            const rightY = lat + Math.cos(heading + 2.5) * size * 0.5;
+            return [[tipX, tipY], [leftX, leftY], [rightX, rightY]];
+          },
+          getFillColor: (d: PointData) => {
+            const speed = (d.extra?.speed as number) || 0;
+            if (speed > 30) return [220, 38, 38, 230]; // fast — bright red
+            if (speed > 10) return [249, 115, 22, 220]; // moving — orange
+            return [250, 180, 0, 200]; // slow/stopped — yellow
+          },
+          getLineColor: [255, 255, 255, 80],
           lineWidthMinPixels: 1,
+          stroked: true,
+          extruded: false,
+          pickable: true,
         })
       );
     }
@@ -696,7 +808,7 @@ export default function ParkingMap() {
     }
 
     return result;
-  }, [data, buildings, viewMode, timeKey, maxCount, showOccupancy, showBuildings, selectedLocation, activeLayers, layerData, currentZoom]);
+  }, [data, buildings, neighbourhoods, viewMode, timeKey, maxCount, showOccupancy, showBuildings, showNeighbourhoods, selectedLocation, activeLayers, layerData, currentZoom]);
 
   const onHover = useCallback((info: PickingInfo) => {
     setHoveredInfo(info.object ? info : null);
@@ -750,8 +862,8 @@ export default function ParkingMap() {
         <DeckGLOverlay layers={layers} onHover={onHover} onClick={onClick} interleaved />
       </Map>
 
-      {/* Title + Controls */}
-      <div className="absolute top-4 left-4 z-10">
+      {/* Title + Controls — fade in after intro */}
+      <div className={`absolute top-4 left-4 z-10 transition-opacity duration-1000 ${introComplete ? "opacity-100" : "opacity-0"}`}>
         <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white/90">Toronto City Pulse</h1>
         <p className="text-zinc-500 text-[11px] sm:text-xs mt-0.5 tracking-wide">
           {data.totalTickets.toLocaleString()} tickets | {data.locationCount} locations | {activeLayers.size} live layers
@@ -792,6 +904,8 @@ export default function ParkingMap() {
         onToggleBuildings={setShowBuildings}
         showOccupancy={showOccupancy}
         onToggleOccupancy={setShowOccupancy}
+        showNeighbourhoods={showNeighbourhoods}
+        onToggleNeighbourhoods={setShowNeighbourhoods}
         isOpen={layerPanelOpen}
         onClose={() => setLayerPanelOpen(false)}
       />
@@ -799,13 +913,22 @@ export default function ParkingMap() {
       {/* Stats bar */}
       <StatsBar data={data} viewMode={viewMode} timeKey={timeKey} />
 
-      {/* Time display */}
+      {/* Time display + about */}
       <div className="absolute top-4 right-4 z-10 text-right">
         <div className="text-3xl sm:text-4xl font-bold tabular-nums tracking-tighter text-white/90">{getTimeLabel()}</div>
         <div className="text-zinc-600 text-[10px] sm:text-xs mt-0.5 tracking-wide uppercase">
           {viewMode === "hourly" ? "Time of Day" : viewMode === "daily" ? "Day of Week" : "Month"} | 2024
         </div>
+        <button
+          onClick={() => setShowAbout(true)}
+          className="mt-2 text-[10px] text-zinc-600 hover:text-zinc-300 transition-colors"
+        >
+          About (?)
+        </button>
       </div>
+
+      {/* About modal */}
+      <AboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
 
       {/* Top 10 ranking */}
       <TopLocations
