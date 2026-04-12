@@ -11,6 +11,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { CITY_LAYERS, FETCHERS, type PointData } from "@/lib/city-layers";
 import LayerPanel from "./LayerPanel";
 import CelestialClock from "./CelestialClock";
+import SearchBar from "./SearchBar";
 
 function DeckGLOverlay(
   props: MapboxOverlayProps & { onClick?: (info: PickingInfo) => void }
@@ -312,6 +313,8 @@ export default function ParkingMap() {
   const [layerData, setLayerData] = useState<globalThis.Map<string, PointData[]>>(() => new globalThis.Map());
   const [loadingLayers, setLoadingLayers] = useState<Set<string>>(new Set());
   const [hoveredCityPoint, setHoveredCityPoint] = useState<PointData | null>(null);
+  const [currentZoom, setCurrentZoom] = useState(11.5);
+  const [viewState, setViewState] = useState(TORONTO_CENTER);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshTimers = useRef<globalThis.Map<string, ReturnType<typeof setInterval>>>(new globalThis.Map());
 
@@ -433,33 +436,60 @@ export default function ParkingMap() {
       );
     }
 
-    result.push(
-      new ColumnLayer({
-        id: "ticket-columns",
-        data: data.tickets,
-        diskResolution: 8,
-        radius: 100,
-        extruded: true,
-        elevationScale: 15,
-        getPosition: (d: TicketLocation) => [d.lng, d.lat],
-        getFillColor: (d: TicketLocation) => {
-          if (selectedLocation && d.location === selectedLocation.location) return [255, 255, 255, 255];
-          return getTicketColor(getCountForTime(d, viewMode, timeKey), maxCount);
-        },
-        getElevation: (d: TicketLocation) => getCountForTime(d, viewMode, timeKey),
-        pickable: true,
-        autoHighlight: true,
-        highlightColor: [255, 255, 255, 80],
-        updateTriggers: {
-          getFillColor: [timeKey, maxCount, viewMode, selectedLocation?.location],
-          getElevation: [timeKey, viewMode],
-        },
-        transitions: {
-          getElevation: { duration: 400, type: "interpolation" },
-          getFillColor: { duration: 400, type: "interpolation" },
-        },
-      })
-    );
+    // Zoom-adaptive: heatmap at city zoom, columns when close
+    const useHeatmap = currentZoom < 12;
+
+    if (useHeatmap) {
+      result.push(
+        new HeatmapLayer({
+          id: "ticket-heatmap",
+          data: data.tickets,
+          getPosition: (d: TicketLocation) => [d.lng, d.lat],
+          getWeight: (d: TicketLocation) => getCountForTime(d, viewMode, timeKey),
+          radiusPixels: 40,
+          intensity: 2,
+          threshold: 0.05,
+          colorRange: [
+            [16, 185, 129, 50],
+            [34, 197, 94, 100],
+            [250, 180, 0, 150],
+            [249, 115, 22, 200],
+            [239, 68, 68, 230],
+          ],
+          updateTriggers: {
+            getWeight: [timeKey, viewMode],
+          },
+        })
+      );
+    } else {
+      result.push(
+        new ColumnLayer({
+          id: "ticket-columns",
+          data: data.tickets,
+          diskResolution: 12,
+          radius: currentZoom > 14 ? 40 : currentZoom > 13 ? 60 : 90,
+          extruded: true,
+          elevationScale: currentZoom > 14 ? 8 : 15,
+          getPosition: (d: TicketLocation) => [d.lng, d.lat],
+          getFillColor: (d: TicketLocation) => {
+            if (selectedLocation && d.location === selectedLocation.location) return [255, 255, 255, 255];
+            return getTicketColor(getCountForTime(d, viewMode, timeKey), maxCount);
+          },
+          getElevation: (d: TicketLocation) => getCountForTime(d, viewMode, timeKey),
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [255, 255, 255, 60],
+          updateTriggers: {
+            getFillColor: [timeKey, maxCount, viewMode, selectedLocation?.location],
+            getElevation: [timeKey, viewMode],
+          },
+          transitions: {
+            getElevation: { duration: 600, easing: (t: number) => t * (2 - t) },
+            getFillColor: { duration: 500, easing: (t: number) => t * (2 - t) },
+          },
+        })
+      );
+    }
 
     if (showOccupancy && data.occupancy.length > 0) {
       result.push(
@@ -665,7 +695,7 @@ export default function ParkingMap() {
     }
 
     return result;
-  }, [data, buildings, viewMode, timeKey, maxCount, showOccupancy, showBuildings, selectedLocation, activeLayers, layerData]);
+  }, [data, buildings, viewMode, timeKey, maxCount, showOccupancy, showBuildings, selectedLocation, activeLayers, layerData, currentZoom]);
 
   const onHover = useCallback((info: PickingInfo) => {
     setHoveredInfo(info.object ? info : null);
@@ -707,30 +737,48 @@ export default function ParkingMap() {
       <CelestialClock hour={currentHour} isAnimating={isPlaying} />
 
       <Map
-        initialViewState={TORONTO_CENTER}
+        {...viewState}
+        onMove={(evt) => {
+          setViewState(evt.viewState);
+          setCurrentZoom(evt.viewState.zoom);
+        }}
         mapStyle={MAP_STYLE}
         style={{ width: "100%", height: "100%" }}
       >
         <DeckGLOverlay layers={layers} onHover={onHover} onClick={onClick} interleaved />
       </Map>
 
-      {/* Title + Layer toggle */}
+      {/* Title + Controls */}
       <div className="absolute top-4 left-4 z-10">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Toronto City Pulse</h1>
-        <p className="text-zinc-400 text-xs sm:text-sm mt-1">
+        <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white/90">Toronto City Pulse</h1>
+        <p className="text-zinc-500 text-[11px] sm:text-xs mt-0.5 tracking-wide">
           {data.totalTickets.toLocaleString()} tickets | {data.locationCount} locations | {activeLayers.size} live layers
         </p>
-        <button
-          onClick={() => setLayerPanelOpen(!layerPanelOpen)}
-          className="mt-2 flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-zinc-700/50 rounded-lg px-3 py-1.5 text-xs text-zinc-300 transition-colors"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-            <polyline points="2 17 12 22 22 17" />
-            <polyline points="2 12 12 17 22 12" />
-          </svg>
-          Layers
-        </button>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={() => setLayerPanelOpen(!layerPanelOpen)}
+            className="flex items-center gap-1.5 bg-white/8 hover:bg-white/15 backdrop-blur-sm border border-zinc-700/40 rounded-lg px-2.5 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 transition-all duration-200"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+            Layers
+          </button>
+          <SearchBar
+            onSelect={(r) => {
+              setViewState((v) => ({
+                ...v,
+                longitude: r.lng,
+                latitude: r.lat,
+                zoom: 15,
+                pitch: 50,
+                transitionDuration: 1500,
+              }));
+            }}
+          />
+        </div>
       </div>
 
       {/* Layer Panel */}
@@ -752,8 +800,8 @@ export default function ParkingMap() {
 
       {/* Time display */}
       <div className="absolute top-4 right-4 z-10 text-right">
-        <div className="text-3xl sm:text-5xl font-bold tabular-nums tracking-tight">{getTimeLabel()}</div>
-        <div className="text-zinc-500 text-xs sm:text-sm mt-1">
+        <div className="text-3xl sm:text-4xl font-bold tabular-nums tracking-tighter text-white/90">{getTimeLabel()}</div>
+        <div className="text-zinc-600 text-[10px] sm:text-xs mt-0.5 tracking-wide uppercase">
           {viewMode === "hourly" ? "Time of Day" : viewMode === "daily" ? "Day of Week" : "Month"} | 2024
         </div>
       </div>
@@ -776,28 +824,27 @@ export default function ParkingMap() {
       )}
 
       {/* Controls */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-16 pb-4 sm:pb-6 px-4 sm:px-6">
-        <div className="flex items-center gap-3 sm:gap-4 mb-3 sm:mb-4 flex-wrap">
-          <div className="flex gap-1 bg-white/10 rounded-lg p-1">
+      <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-20 pb-4 sm:pb-5 px-4 sm:px-6">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex gap-0.5 bg-white/8 rounded-lg p-0.5">
             {(["hourly", "daily", "monthly"] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  viewMode === mode ? "bg-emerald-500 text-white" : "text-zinc-400 hover:text-white"
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
+                  viewMode === mode ? "bg-emerald-500/90 text-white" : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
                 {mode.charAt(0).toUpperCase() + mode.slice(1)}
               </button>
             ))}
           </div>
-
         </div>
 
-        <div className="flex items-center gap-3 sm:gap-4">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0"
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-white/8 hover:bg-white/15 border border-zinc-700/30 transition-all duration-200 flex-shrink-0"
           >
             {isPlaying ? (
               <svg width="12" height="12" viewBox="0 0 14 14" fill="white">
