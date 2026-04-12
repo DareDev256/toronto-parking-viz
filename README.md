@@ -1,19 +1,36 @@
-# Toronto Parking Activity — 3D Visualization
+# Toronto City Pulse — Real-Time 3D City Intelligence
 
-Interactive 3D timelapse of 456K+ parking tickets across 491 locations in Toronto (2024 data). First 3D parking visualization for Toronto.
+Interactive 3D city intelligence dashboard for Toronto. 10+ live data layers from Toronto Open Data on a single 3D map — parking enforcement, TTC vehicles, bike share, road closures, cameras, collisions, and more.
 
 **Live:** [toronto-parking-viz.vercel.app](https://toronto-parking-viz.vercel.app)
 
+## Data Layers
+
+| Layer | Source | Records | Refresh |
+|-------|--------|---------|---------|
+| Parking Tickets | Toronto Open Data | 456K+ across 491 locations | 2024 annual |
+| Green P Occupancy | Toronto Parking Authority | 444 lots | Quarterly |
+| 3D Building Massing | Toronto Open Data | 11K buildings (20m+) | Static |
+| TTC Vehicles | TTC NextBus API | ~900 live vehicles | 15 seconds |
+| Bike Share | GBFS Feed | 1,031 stations | 30 seconds |
+| Road Closures | City of Toronto API | Active restrictions | Near real-time |
+| Red Light Cameras | Toronto Open Data | 296 intersections | Periodic |
+| Speed Cameras | Toronto Open Data | 198 locations | Periodic |
+| Traffic Cameras | Toronto Open Data | 336 cameras | Periodic |
+| Collisions (KSI) | Toronto Open Data | 2024 records | Annual |
+| Fire Stations | Toronto Open Data | 85 stations | Static |
+
 ## Features
 
-- **3D extruded columns** — ticket volume per location, color-coded green to red
-- **Animated timelapse** — watch enforcement patterns shift hour by hour
-- **Three view modes** — Hourly, Daily, Monthly breakdowns
-- **Click any bar** — detail panel with exact address, total tickets, avg fine, peak hour, hourly distribution chart, Google Maps link
-- **Top 10 ranking** — live-updating leaderboard of hottest ticket spots
-- **Stats bar** — real-time ticket count, location count, avg fine for current time slice
-- **3D building massing** — 11K Toronto buildings as skyline backdrop (toggleable)
-- **Green P occupancy overlay** — 444 parking lots with occupancy data
+- **3D extruded columns** — parking ticket volume per location, color-coded green to red
+- **Animated timelapse** — hourly, daily, monthly views with play/pause
+- **10+ toggleable data layers** — organized by category (Transit, Enforcement, Safety, Infrastructure)
+- **Real-time data** — TTC vehicles and Bike Share refresh every 15-30 seconds with live pulse indicators
+- **Click any bar** — detail panel with address, tickets, avg fine, peak hour, hourly chart, Google Maps link
+- **Top 10 ranking** — live-updating leaderboard
+- **Stats bar** — real-time ticket count, location count, avg fine
+- **3D building massing** — Toronto skyline as backdrop
+- **Layer panel** — categorized toggles with point counts and loading states
 - **Mobile responsive** — touch controls, responsive layout
 
 ## Tech Stack
@@ -21,17 +38,14 @@ Interactive 3D timelapse of 456K+ parking tickets across 491 locations in Toront
 - **Next.js 16** + TypeScript
 - **deck.gl 9** — ColumnLayer, PolygonLayer, ScatterplotLayer
 - **MapLibre GL** + CARTO dark-matter basemap
-- **Toronto Open Data** — parking tickets (2024), parking occupancy, 3D building massing
-- **Nominatim** — geocoding street addresses to coordinates
+- **Toronto Open Data** — CKAN API, GBFS, NextBus XML, City REST APIs
 - **Vercel** — deployment
 
 ## Data Pipeline
 
-1. Download 12 monthly CSVs from Toronto Open Data (2.8M tickets/year)
-2. Aggregate by top 500 locations
-3. Geocode via Nominatim with aggressive caching (614 locations)
-4. Extract 3D building massing from 210MB shapefile, filter to downtown core (20m+ height)
-5. Output optimized JSON for web delivery (0.3MB tickets + 1.6MB buildings)
+1. Parking tickets: 12 monthly CSVs → top 500 locations → Nominatim geocoding → aggregated JSON (0.3MB)
+2. Buildings: 210MB shapefile → reproject Web Mercator → filter downtown 20m+ → optimized JSON (1.6MB)
+3. City layers: Live API fetching with configurable refresh intervals and caching
 
 ## Local Development
 
@@ -40,19 +54,13 @@ npm install
 npm run dev
 ```
 
-Data files are pre-built in `public/data/`. To regenerate:
-
-```bash
-# Download parking tickets CSV from Toronto Open Data first
-python3 scripts/process-tickets.py
-python3 scripts/extract-buildings.py
-```
-
 ## Data Sources
 
-- [Parking Tickets](https://open.toronto.ca/dataset/parking-tickets/) — City of Toronto Open Data
-- [Parking Occupancy](https://open.toronto.ca/dataset/parking-occupancy/) — Toronto Parking Authority
-- [3D Massing](https://open.toronto.ca/dataset/3d-massing/) — City of Toronto Open Data
+All data from public, freely accessible sources:
+- [Toronto Open Data Portal](https://open.toronto.ca/) — parking tickets, buildings, cameras, collisions, fire stations
+- [TTC NextBus API](https://retro.umoiq.com/) — real-time vehicle positions
+- [Bike Share Toronto GBFS](https://tor.publicbikesystem.net/) — station status
+- [City of Toronto Road Restrictions API](https://secure.toronto.ca/opendata/) — road closures
 
 ## License
 
