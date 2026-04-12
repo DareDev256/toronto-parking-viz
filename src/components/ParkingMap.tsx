@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Map, useControl } from "react-map-gl/maplibre";
+import { Map, useControl, type MapRef } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ColumnLayer, ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
@@ -315,6 +315,7 @@ export default function ParkingMap() {
   const [hoveredCityPoint, setHoveredCityPoint] = useState<PointData | null>(null);
   const [currentZoom, setCurrentZoom] = useState(11.5);
   const [viewState, setViewState] = useState(TORONTO_CENTER);
+  const mapRef = useRef<MapRef>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshTimers = useRef<globalThis.Map<string, ReturnType<typeof setInterval>>>(new globalThis.Map());
 
@@ -737,6 +738,7 @@ export default function ParkingMap() {
       <CelestialClock hour={currentHour} isAnimating={isPlaying} />
 
       <Map
+        ref={mapRef}
         {...viewState}
         onMove={(evt) => {
           setViewState(evt.viewState);
@@ -768,14 +770,13 @@ export default function ParkingMap() {
           </button>
           <SearchBar
             onSelect={(r) => {
-              setViewState((v) => ({
-                ...v,
-                longitude: r.lng,
-                latitude: r.lat,
+              mapRef.current?.flyTo({
+                center: [r.lng, r.lat],
                 zoom: 15,
                 pitch: 50,
-                transitionDuration: 1500,
-              }));
+                duration: 2000,
+                essential: true,
+              });
             }}
           />
         </div>

@@ -6,6 +6,7 @@ const ALLOWED_HOSTS = [
   "retro.umoiq.com",
   "tor.publicbikesystem.net",
   "gtfsrt.ttc.ca",
+  "nominatim.openstreetmap.org",
 ];
 
 export async function GET(request: NextRequest) {
