@@ -7,6 +7,8 @@ import { ColumnLayer, ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import type { PickingInfo } from "@deck.gl/core";
 import type { MapboxOverlayProps } from "@deck.gl/mapbox";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { CITY_LAYERS, FETCHERS, type PointData } from "@/lib/city-layers";
+import LayerPanel from "./LayerPanel";
 
 function DeckGLOverlay(
   props: MapboxOverlayProps & { onClick?: (info: PickingInfo) => void }
@@ -214,7 +216,7 @@ function TopLocations({ tickets, viewMode, timeKey, onSelect }: {
     return (
       <button
         onClick={() => setShowRanking(true)}
-        className="absolute top-20 left-4 z-10 bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-zinc-400 transition-colors"
+        className="absolute top-20 right-4 z-10 bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-zinc-700/50 rounded-lg px-3 py-2 text-xs text-zinc-400 transition-colors"
       >
         Top 10
       </button>
@@ -222,7 +224,7 @@ function TopLocations({ tickets, viewMode, timeKey, onSelect }: {
   }
 
   return (
-    <div className="absolute top-20 left-4 z-10 w-64 bg-black/90 backdrop-blur-sm border border-zinc-700 rounded-xl p-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+    <div className="absolute top-20 right-4 z-10 w-64 bg-black/90 backdrop-blur-sm border border-zinc-700 rounded-xl p-4 max-h-[calc(100vh-200px)] overflow-y-auto">
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs font-medium text-zinc-400">TOP 10 RIGHT NOW</div>
         <button onClick={() => setShowRanking(false)} className="text-zinc-500 hover:text-white text-sm">x</button>
@@ -303,7 +305,13 @@ export default function ParkingMap() {
   const [showBuildings, setShowBuildings] = useState(true);
   const [hoveredInfo, setHoveredInfo] = useState<PickingInfo | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<TicketLocation | null>(null);
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
+  const [activeLayers, setActiveLayers] = useState<Set<string>>(new Set());
+  const [layerData, setLayerData] = useState<globalThis.Map<string, PointData[]>>(() => new globalThis.Map());
+  const [loadingLayers, setLoadingLayers] = useState<Set<string>>(new Set());
+  const [hoveredCityPoint, setHoveredCityPoint] = useState<PointData | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshTimers = useRef<globalThis.Map<string, ReturnType<typeof setInterval>>>(new globalThis.Map());
 
   useEffect(() => {
     fetch("/data/toronto-parking-2024.json")
@@ -314,6 +322,49 @@ export default function ParkingMap() {
       .then((r) => r.json())
       .then(setBuildings)
       .catch(console.error);
+  }, []);
+
+  // City layer data fetching
+  const toggleLayer = useCallback((layerId: string) => {
+    setActiveLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layerId)) {
+        next.delete(layerId);
+        // Clear refresh timer
+        const timer = refreshTimers.current.get(layerId);
+        if (timer) { clearInterval(timer); refreshTimers.current.delete(layerId); }
+      } else {
+        next.add(layerId);
+        // Fetch data
+        const fetcher = FETCHERS[layerId];
+        if (fetcher) {
+          setLoadingLayers((p) => new Set(p).add(layerId));
+          fetcher().then((pts) => {
+            setLayerData((m) => new globalThis.Map(m).set(layerId, pts));
+            setLoadingLayers((p) => { const n = new Set(p); n.delete(layerId); return n; });
+          }).catch(console.error);
+
+          // Set up refresh for real-time layers
+          const def = CITY_LAYERS.find((l) => l.id === layerId);
+          if (def?.refreshInterval) {
+            const timer = setInterval(() => {
+              fetcher().then((pts) => {
+                setLayerData((m) => new globalThis.Map(m).set(layerId, pts));
+              }).catch(console.error);
+            }, def.refreshInterval);
+            refreshTimers.current.set(layerId, timer);
+          }
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  // Cleanup refresh timers
+  useEffect(() => {
+    return () => {
+      refreshTimers.current.forEach((timer) => clearInterval(timer));
+    };
   }, []);
 
   useEffect(() => {
@@ -420,11 +471,43 @@ export default function ParkingMap() {
       );
     }
 
+    // City data layers
+    for (const layerDef of CITY_LAYERS) {
+      if (!activeLayers.has(layerDef.id)) continue;
+      const points = layerData.get(layerDef.id);
+      if (!points || points.length === 0) continue;
+
+      result.push(
+        new ScatterplotLayer({
+          id: `city-${layerDef.id}`,
+          data: points,
+          getPosition: (d: PointData) => [d.lng, d.lat],
+          getFillColor: [...layerDef.color, 200] as [number, number, number, number],
+          getRadius: layerDef.id === "ttc" ? 60 : layerDef.id === "collisions" ? 40 : 50,
+          pickable: true,
+          radiusMinPixels: layerDef.id === "ttc" ? 4 : 3,
+          radiusMaxPixels: 15,
+          ...(layerDef.id === "ttc" ? {
+            // TTC vehicles get line border for visibility
+            stroked: true,
+            getLineColor: [255, 255, 255, 100] as [number, number, number, number],
+            lineWidthMinPixels: 1,
+          } : {}),
+        })
+      );
+    }
+
     return result;
-  }, [data, buildings, viewMode, timeKey, maxCount, showOccupancy, showBuildings, selectedLocation]);
+  }, [data, buildings, viewMode, timeKey, maxCount, showOccupancy, showBuildings, selectedLocation, activeLayers, layerData]);
 
   const onHover = useCallback((info: PickingInfo) => {
     setHoveredInfo(info.object ? info : null);
+    // Check if hovering a city layer point
+    if (info.layer?.id?.startsWith("city-") && info.object) {
+      setHoveredCityPoint(info.object as PointData);
+    } else {
+      setHoveredCityPoint(null);
+    }
   }, []);
 
   const onClick = useCallback((info: PickingInfo) => {
@@ -461,13 +544,38 @@ export default function ParkingMap() {
         <DeckGLOverlay layers={layers} onHover={onHover} onClick={onClick} interleaved />
       </Map>
 
-      {/* Title */}
+      {/* Title + Layer toggle */}
       <div className="absolute top-4 left-4 z-10">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Toronto Parking Activity</h1>
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Toronto City Pulse</h1>
         <p className="text-zinc-400 text-xs sm:text-sm mt-1">
-          {data.totalTickets.toLocaleString()} tickets | {data.locationCount} locations | 2024
+          {data.totalTickets.toLocaleString()} tickets | {data.locationCount} locations | {activeLayers.size} live layers
         </p>
+        <button
+          onClick={() => setLayerPanelOpen(!layerPanelOpen)}
+          className="mt-2 flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur-sm border border-zinc-700/50 rounded-lg px-3 py-1.5 text-xs text-zinc-300 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            <polyline points="2 17 12 22 22 17" />
+            <polyline points="2 12 12 17 22 12" />
+          </svg>
+          Layers
+        </button>
       </div>
+
+      {/* Layer Panel */}
+      <LayerPanel
+        activeLayers={activeLayers}
+        layerData={layerData}
+        loadingLayers={loadingLayers}
+        onToggle={toggleLayer}
+        showBuildings={showBuildings}
+        onToggleBuildings={setShowBuildings}
+        showOccupancy={showOccupancy}
+        onToggleOccupancy={setShowOccupancy}
+        isOpen={layerPanelOpen}
+        onClose={() => setLayerPanelOpen(false)}
+      />
 
       {/* Stats bar */}
       <StatsBar data={data} viewMode={viewMode} timeKey={timeKey} />
@@ -514,25 +622,6 @@ export default function ParkingMap() {
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showOccupancy}
-              onChange={(e) => setShowOccupancy(e.target.checked)}
-              className="accent-emerald-500"
-            />
-            <span className="hidden sm:inline">Green P</span> Occupancy
-          </label>
-
-          <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showBuildings}
-              onChange={(e) => setShowBuildings(e.target.checked)}
-              className="accent-emerald-500"
-            />
-            3D Buildings
-          </label>
         </div>
 
         <div className="flex items-center gap-3 sm:gap-4">
@@ -606,6 +695,19 @@ export default function ParkingMap() {
           <div className="font-bold text-emerald-400 mb-1">{hoveredOccupancy.carPark} — {hoveredOccupancy.location}</div>
           <div className="text-zinc-300">{hoveredOccupancy.occupancy}% peak occupancy</div>
           <div className="text-zinc-500 text-xs mt-1">{hoveredOccupancy.totalSpaces} total spaces</div>
+        </div>
+      )}
+
+      {/* City layer hover tooltip */}
+      {hoveredInfo && hoveredInfo.x != null && hoveredCityPoint && (
+        <div
+          className="absolute z-20 pointer-events-none bg-black/90 border border-zinc-700 rounded-lg px-4 py-3 text-sm max-w-xs"
+          style={{ left: hoveredInfo.x + 12, top: Math.min(hoveredInfo.y - 12, (typeof window !== "undefined" ? window.innerHeight : 800) - 100) }}
+        >
+          <div className="font-bold text-white mb-1">{hoveredCityPoint.label}</div>
+          {hoveredCityPoint.detail && (
+            <div className="text-zinc-400 text-xs">{hoveredCityPoint.detail}</div>
+          )}
         </div>
       )}
     </div>

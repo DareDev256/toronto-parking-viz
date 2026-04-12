@@ -8,13 +8,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Toronto Parking Activity | 3D Visualization",
+  title: "Toronto City Pulse | Real-Time 3D City Intelligence",
   description:
-    "Interactive 3D timelapse of parking ticket activity across Toronto. Built with deck.gl and Toronto Open Data.",
+    "Interactive 3D city intelligence dashboard for Toronto. Live TTC vehicles, parking enforcement, bike share, road closures, cameras, collisions — 10+ data layers from Toronto Open Data.",
   openGraph: {
-    title: "Toronto Parking Activity | 3D Visualization",
+    title: "Toronto City Pulse | Real-Time 3D City Intelligence",
     description:
-      "Interactive 3D timelapse of 2.8M+ parking tickets across Toronto.",
+      "10+ live data layers on a 3D map of Toronto. Parking, transit, safety, infrastructure — all from open data.",
     type: "website",
   },
 };
