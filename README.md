@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Toronto Parking Activity — 3D Visualization
 
-## Getting Started
+Interactive 3D timelapse of 456K+ parking tickets across 491 locations in Toronto (2024 data). First 3D parking visualization for Toronto.
 
-First, run the development server:
+**Live:** [toronto-parking-viz.vercel.app](https://toronto-parking-viz.vercel.app)
+
+## Features
+
+- **3D extruded columns** — ticket volume per location, color-coded green to red
+- **Animated timelapse** — watch enforcement patterns shift hour by hour
+- **Three view modes** — Hourly, Daily, Monthly breakdowns
+- **Click any bar** — detail panel with exact address, total tickets, avg fine, peak hour, hourly distribution chart, Google Maps link
+- **Top 10 ranking** — live-updating leaderboard of hottest ticket spots
+- **Stats bar** — real-time ticket count, location count, avg fine for current time slice
+- **3D building massing** — 11K Toronto buildings as skyline backdrop (toggleable)
+- **Green P occupancy overlay** — 444 parking lots with occupancy data
+- **Mobile responsive** — touch controls, responsive layout
+
+## Tech Stack
+
+- **Next.js 16** + TypeScript
+- **deck.gl 9** — ColumnLayer, PolygonLayer, ScatterplotLayer
+- **MapLibre GL** + CARTO dark-matter basemap
+- **Toronto Open Data** — parking tickets (2024), parking occupancy, 3D building massing
+- **Nominatim** — geocoding street addresses to coordinates
+- **Vercel** — deployment
+
+## Data Pipeline
+
+1. Download 12 monthly CSVs from Toronto Open Data (2.8M tickets/year)
+2. Aggregate by top 500 locations
+3. Geocode via Nominatim with aggressive caching (614 locations)
+4. Extract 3D building massing from 210MB shapefile, filter to downtown core (20m+ height)
+5. Output optimized JSON for web delivery (0.3MB tickets + 1.6MB buildings)
+
+## Local Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Data files are pre-built in `public/data/`. To regenerate:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Download parking tickets CSV from Toronto Open Data first
+python3 scripts/process-tickets.py
+python3 scripts/extract-buildings.py
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Data Sources
 
-## Learn More
+- [Parking Tickets](https://open.toronto.ca/dataset/parking-tickets/) — City of Toronto Open Data
+- [Parking Occupancy](https://open.toronto.ca/dataset/parking-occupancy/) — Toronto Parking Authority
+- [3D Massing](https://open.toronto.ca/dataset/3d-massing/) — City of Toronto Open Data
 
-To learn more about Next.js, take a look at the following resources:
+## License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+MIT
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built by [DareDev256](https://github.com/DareDev256)

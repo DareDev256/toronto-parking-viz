@@ -82,9 +82,9 @@ def main():
                 if loc:
                     location_counts[loc] += 1
 
-    top = sorted(location_counts.items(), key=lambda x: -x[1])[:200]
+    top = sorted(location_counts.items(), key=lambda x: -x[1])[:500]
     top_set = {loc for loc, _ in top}
-    print(f"\nTop 200 locations: {sum(c for _, c in top):,} of {sum(location_counts.values()):,} total tickets")
+    print(f"\nTop 500 locations: {sum(c for _, c in top):,} of {sum(location_counts.values()):,} total tickets")
 
     # Geocode
     need_geocode = [loc for loc in top_set if loc.upper().strip() not in geocode_cache]
