@@ -315,12 +315,7 @@ export default function ParkingMap() {
   const [loadingLayers, setLoadingLayers] = useState<Set<string>>(new Set());
   const [hoveredCityPoint, setHoveredCityPoint] = useState<PointData | null>(null);
   const [currentZoom, setCurrentZoom] = useState(8);
-  const [viewState, setViewState] = useState({
-    ...TORONTO_CENTER,
-    zoom: 8,
-    pitch: 0,
-    bearing: 0,
-  });
+  const zoomRef = useRef(8);
   const [introComplete, setIntroComplete] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [neighbourhoods, setNeighbourhoods] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -592,50 +587,40 @@ export default function ParkingMap() {
 
     // --- City data layers with unique visual treatments ---
 
-    // TTC Vehicles — directional arrows showing heading
+    // TTC Vehicles — speed-colored with glow
     if (activeLayers.has("ttc") && layerData.get("ttc")?.length) {
       const ttcData = layerData.get("ttc")!;
-      // Glow trail behind each vehicle
+      // Outer glow
       result.push(
         new ScatterplotLayer({
           id: "city-ttc-glow",
           data: ttcData,
           getPosition: (d: PointData) => [d.lng, d.lat],
-          getFillColor: [220, 38, 38, 50],
+          getFillColor: [220, 38, 38, 40],
           getRadius: 150,
           radiusMinPixels: 6,
-          radiusMaxPixels: 20,
+          radiusMaxPixels: 18,
         })
       );
-      // Arrow body — small triangles computed from heading
+      // Core — color by speed
       result.push(
-        new PolygonLayer({
+        new ScatterplotLayer({
           id: "city-ttc",
           data: ttcData,
-          getPolygon: (d: PointData) => {
-            const heading = ((d.extra?.heading as number) || 0) * (Math.PI / 180);
-            const lat = d.lat;
-            const lng = d.lng;
-            const size = 0.0008; // arrow size in degrees
-            const tipX = lng + Math.sin(heading) * size;
-            const tipY = lat + Math.cos(heading) * size;
-            const leftX = lng + Math.sin(heading - 2.5) * size * 0.5;
-            const leftY = lat + Math.cos(heading - 2.5) * size * 0.5;
-            const rightX = lng + Math.sin(heading + 2.5) * size * 0.5;
-            const rightY = lat + Math.cos(heading + 2.5) * size * 0.5;
-            return [[tipX, tipY], [leftX, leftY], [rightX, rightY]];
-          },
+          getPosition: (d: PointData) => [d.lng, d.lat],
           getFillColor: (d: PointData) => {
             const speed = (d.extra?.speed as number) || 0;
-            if (speed > 30) return [220, 38, 38, 230]; // fast — bright red
-            if (speed > 10) return [249, 115, 22, 220]; // moving — orange
-            return [250, 180, 0, 200]; // slow/stopped — yellow
+            if (speed > 30) return [220, 38, 38, 240] as [number, number, number, number];
+            if (speed > 10) return [249, 115, 22, 230] as [number, number, number, number];
+            return [250, 200, 50, 200] as [number, number, number, number];
           },
-          getLineColor: [255, 255, 255, 80],
-          lineWidthMinPixels: 1,
-          stroked: true,
-          extruded: false,
+          getRadius: 60,
           pickable: true,
+          radiusMinPixels: 3,
+          radiusMaxPixels: 10,
+          stroked: true,
+          getLineColor: [255, 255, 255, 100],
+          lineWidthMinPixels: 1,
         })
       );
     }
@@ -851,10 +836,16 @@ export default function ParkingMap() {
 
       <Map
         ref={mapRef}
-        {...viewState}
-        onMove={(evt) => {
-          setViewState(evt.viewState);
-          setCurrentZoom(evt.viewState.zoom);
+        initialViewState={{
+          ...TORONTO_CENTER,
+          zoom: 8,
+          pitch: 0,
+          bearing: 0,
+        }}
+        onZoomEnd={(evt) => {
+          const z = evt.viewState.zoom;
+          zoomRef.current = z;
+          setCurrentZoom(z);
         }}
         mapStyle={MAP_STYLE}
         style={{ width: "100%", height: "100%" }}
