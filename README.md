@@ -17,8 +17,20 @@ Interactive 3D city intelligence dashboard for Toronto. 10+ live data layers fro
 | Red Light Cameras | Toronto Open Data | 296 intersections | Periodic |
 | Speed Cameras | Toronto Open Data | 198 locations | Periodic |
 | Traffic Cameras | Toronto Open Data | 336 cameras | Periodic |
-| Collisions (KSI) | Toronto Open Data | 2024 records | Annual |
+| Collisions (KSI) | Toronto Open Data | 20,457 records | Annual |
 | Fire Stations | Toronto Open Data | 85 stations | Static |
+
+The three static figures above come out of `public/data/`:
+
+```bash
+# 456,367 tickets across 491 locations, 444 Green P lots
+node -e "const d=require('./public/data/toronto-parking-2024.json');console.log(d.totalTickets,d.locationCount,d.occupancy.length)"
+# 11311 building footprints
+node -e "console.log(require('./public/data/buildings-downtown.json').length)"
+```
+
+The live-layer counts are the sizes those APIs return and are quoted from
+`src/lib/city-layers.ts`. They move when the city's data moves.
 
 ## Features
 
@@ -43,8 +55,8 @@ Interactive 3D city intelligence dashboard for Toronto. 10+ live data layers fro
 
 ## Data Pipeline
 
-1. Parking tickets: 12 monthly CSVs → top 500 locations → Nominatim geocoding → aggregated JSON (0.3MB)
-2. Buildings: 210MB shapefile → reproject Web Mercator → filter downtown 20m+ → optimized JSON (1.6MB)
+1. Parking tickets: 12 monthly CSVs → top 500 locations by volume → Nominatim geocoding → 491 that geocoded, aggregated to JSON (351KB)
+2. Buildings: shapefile → reproject Web Mercator → filter downtown 20m+ → 11,311 footprints, 1.6MB JSON
 3. City layers: Live API fetching with configurable refresh intervals and caching
 
 ## Local Development
